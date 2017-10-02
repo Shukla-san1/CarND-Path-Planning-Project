@@ -33,10 +33,10 @@ Below is the directory structure of the projects.
 * PathPlanner.cpp and PathPlanner.h : This class is main responsible of path planning . Driving the car safely and doing the lane change without collision.
 * spline.h : In order to estimate the location of points between the known waypoints, we need to "interpolate" the position of those points. Spilne can be used for this task. It is simple to use and requiring no dependencies.
 
-## Key points and their Explanation : 
+## Key points in code and their Explanation : 
 Below are the different key points and their details.
 
-## Cold start and Jerk
+## Cold start and Jerk:
 In the start, I could see the jerk alert, it was because ego car was attaining ref velocity in .02 sec. This was fixed by setting ref_vel to 0 and making incremental change in velocity with  .224 which is approx 5 m/sec^2 below the limit of 10 m/sec^2.
 ```cpp
 for(unsigned int i = 1  ; i <= 50 - previous_path_x.size() ; i++)
@@ -51,50 +51,64 @@ for(unsigned int i = 1  ; i <= 50 - previous_path_x.size() ; i++)
 		}
 
 ```
-## Keep lane and smooth transitions
+## Keep lane and smooth transitions:
 We are using frenet to keep lane and for smooth transition and jerk or avoid max accelration warning, we are using three previous way spaaced with 30m, 60m and at 90m and then using spline we add those points on spline using spline lib set functions. below image would explain better how does it works.
 
 ![Math behind setting points on spline](spline_math.png)
 
+This portion of implementation can be seen in path_planning.cpp in keep_planning function. below is the code snippet.
+```cpp
+double target_x = 30.0;
+	double target_y = s(target_x);
+	double target_dist = sqrt((target_x)*(target_x) + (target_y)*(target_y));
 
+	double x_add_on = 0;
 
-The objective of this project to achieve highway driving without any collision , jerk , out of lane and reach the goal. Below are the functions which does this job (called from main.cpp) : 
+	// fill up the rest of our plath planner points after filling it with previous points, here we always display
+	// 50 points
+
+	for(unsigned int i = 1  ; i <= 50 - previous_path_x.size() ; i++)
+	{
+		if (car_speed < ref_vel)
+		{
+			car_speed += .224;
+		}
+		else if (car_speed > ref_vel)
+		{
+			car_speed -= .224;
+		}
+
+		double N = (target_dist/(0.02 * car_speed/2.24));
+		double x_point = x_add_on + (target_x)/N ;
+		double y_point = s(x_point);
+```
+
+## Lane change and collision avoidance
+The objective of this project to achieve highway driving without any collision , jerk , out of lane and reach the goal. Below are the functions which does this job (called from main.cpp) which in turn call function such as getReferenceVelocity, KeepLane function and changeLane function.Details about getReferenceVelocity, KeepLane function and changeLane can be seen in path_planning.cpp file.
 
 ```cpp
 
-pathplanner.GetCurrentVelocity(lane, car_s, car_d, sensor_fusion, prev_size, ref_vel, min_left_dist, min_right_dist, too_close, closest);
-
-pathplanner.FollowLane(map_waypoints_x, map_waypoints_y, map_waypoints_s, previous_path_x, previous_path_y, car_x, car_y, car_yaw, car_speed, car_s, ref_vel, lane, next_x_vals, next_y_vals);
-
-if (too_close)
-{
-    pathplanner.ChangeLane(too_close, min_left_dist, min_right_dist, lane, keep_lane);
-}
+pathplanner.Drive(car_x, car_y, car_yaw, car_speed, car_s, car_d, end_path_s, sensor_fusion, map_waypoints_x, map_waypoints_y, map_waypoints_s, previous_path_x, previous_path_y, next_x_vals, next_y_vals, lane, keep_lane);
 
 ```
-a) These function check if the car should keep driving in the same lane or should change to another one. It also resolves what should be the Ego car's speed.  
+
+a) KeepLane function check if the car should keep driving in the same lane or should change to another one. It also resolves what should be the Ego car's speed.  
 
 b) The car updates its velocity using GetCurrentVelocity() function, depending on what is going on around it ( Example : if there is a car in front of it).    
 
-c) Then it checks if it should keep its current lane or change it -PathPlanner::FollowLane().  
-
-- The implementation is same as explained in project Q & A. it starts the new path with whatever previous path points were left over from the last cycle. Then append new waypoints, until the new path has 50 total waypoints.
-
-- Using information from the previous path ensures that there is a smooth transition from cycle to cycle. But the more waypoints we use from the previous path, the less the new path will reflect dynamic changes in the environment. we used only last waypoint from the previous path and then generate the rest of the new path based on new data from the car's sensor fusion information. 
-
-- Note that we are using Frenet coordinate to add 30 evenly spaced points ahead of the start points using getXY() helper function. And before calculation we transform the coordinate into car coordinates. At the end, before sending next x, next y values to simulator, it rotate back to normal after rotating it earlier.  
+c) Then it checks if it should keep its current lane or change it - PathPlanner::KeepLane().  
 
 c) And finally, if it is safe to do it, it will change to another lane for overtaking the car in front of it using ChangeLane() function.   
 
 ### Result :
 Below is my observation :  
-a) The car is able to drive safe during all the period. I checked ~ 18 mile without any issue.  
+a) The car is able to drive safe during all the period. I checked ~ 10 mile without any issue.  
 b) It takes ~ 5-6 min. to complete a lap of 4.32 miles depending on the amount of traffic and its particular configuration.  
 c) The car is able to lane change when free lane available without any noticeable jerk .  
 d) The car is able to slow down its speed when no lane change available and front car is nearby.   
 
 ### Conclusion :
 The car is able to run without any issue and done a reasonable job in driving, however there are lots of things can be improved :  
-a) There are cases where it does not take the wisest path.  
+a) There are cases where it does not take the efficient path. For ex ego car is in left most lane and other cars in lane 1 does not allow it to change lane. it run mostly with reduced speed.
 b) I have not implemented separately cost function and finite state machine. This will help in dealing with more complex and real scenarios.  
 c) Incorporate a controller such as PID or MPC that follows the Path Planner's output path. 
