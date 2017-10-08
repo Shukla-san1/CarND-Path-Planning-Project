@@ -10,16 +10,16 @@
 #include "spline.h"
 
 
-bool PathPlanner::IsChangeLaneSafe(int keep_lane, double min_left_dist, double min_right_dist, int& lane)
+bool PathPlanner::IsChangeLaneSafe(int keep_lane, double min_left_dist, double min_right_dist, double min_long_dist, int& lane)
 {
 	bool lane_change = false;
 
-	if (lane == 0 && min_right_dist >= side_dist && keep_lane == 0)
+	if (lane == 0 && min_right_dist >= side_dist && keep_lane == 0 && min_long_dist >= long_dist)
 	{
 		lane += 1;
 		lane_change = true;
 	}
-	else if (lane == 1 && (min_left_dist >= side_dist || min_right_dist >= side_dist) && keep_lane == 0)
+	else if (lane == 1 && (min_left_dist >= side_dist || min_right_dist >= side_dist) && keep_lane == 0 && min_long_dist >= long_dist)
 	{
 		if (min_left_dist > min_right_dist)
 		{
@@ -31,7 +31,7 @@ bool PathPlanner::IsChangeLaneSafe(int keep_lane, double min_left_dist, double m
 		}
 		lane_change = true;
 	}
-	else if (lane == 2 && min_left_dist >= side_dist && keep_lane == 0)
+	else if (lane == 2 && min_left_dist >= side_dist && keep_lane == 0 && min_long_dist >= long_dist)
 	{
 		lane -= 1;
 		lane_change = true;
@@ -176,9 +176,9 @@ void PathPlanner::KeepLane(const vector<double>& map_waypoints_x, const vector<d
 	}
 }
 
-void PathPlanner::ChangeLane(bool too_close, double min_left_dist, double min_right_dist, int &lane, int& keep_lane)
+void PathPlanner::ChangeLane(bool too_close, double min_left_dist, double min_right_dist, double min_long_dist, int &lane, int& keep_lane)
 {
-	bool changed_lane = IsChangeLaneSafe(keep_lane, min_left_dist, min_right_dist, lane);
+	bool changed_lane = IsChangeLaneSafe(keep_lane, min_left_dist, min_right_dist, min_long_dist,lane);
 
 		if (changed_lane) {
 			keep_lane = 40;
@@ -191,39 +191,46 @@ void PathPlanner::GetCurrentReferenceVelocity(int lane, double ego_car_s, double
 {
 
 	    double lane_size = 4 * lane;
+		double check_speed = sqrt(car_vx * car_vx + car_vy * car_vy);
+
+		double check_car_s = car_s;
+
+		check_car_s += ((double)prev_size * .02 * check_speed);
 
 		if (car_d < (2 + lane_size + 2) && car_d > (2+ lane_size - 2))
 		{
-			double check_speed = sqrt(car_vx * car_vx + car_vy * car_vy);
 
-			double check_car_s = car_s;
 
-			check_car_s += ((double)prev_size * .02 * check_speed);
-
-			if (check_car_s > ego_car_s)
+			if(check_car_s > ego_car_s )
 			{
-				closest = check_car_s - ego_car_s;
 
-				if (closest < closest_dist + 20)
-				{
-					too_close = true;
-				}
+					//closest = fabs(check_car_s - ego_car_s);
+				  closest = check_car_s - ego_car_s ;
 
-				if (closest < closest_dist + 10)
-				{
-					ref_vel = check_speed * 2.237;
-					cout << "ref velocity:" << ref_vel << endl;
-
-					if (closest < closest_dist)
+					if (closest < closest_dist + 20)
 					{
-						ref_vel -= 5;
+						too_close = true;
 					}
-				}
+
+					if (closest < closest_dist + 10)
+					{
+						ref_vel = check_speed * 2.237;
+						cout << "ref velocity:" << ref_vel << endl;
+
+						if (closest < closest_dist && check_speed < 5)
+						{
+							ref_vel -= 9;
+
+						}
+					}
+
+
 			}
+
 		}
 }
 
-void PathPlanner::GetReferenceVelocity(int lane, double ego_car_s, double ego_car_d, const vector<vector<double>>& sensor_fusion, int& prev_size, double& ref_vel, double& min_left_dist, double& min_right_dist, bool& too_close, double& closest)
+void PathPlanner::GetReferenceVelocity(int lane, double ego_car_s, double ego_car_d, const vector<vector<double>>& sensor_fusion, int& prev_size, double& ref_vel, double& min_left_dist, double& min_right_dist, double& min_long_dist , bool& too_close, double& closest)
 {
 	int sensor_fusion_size = sensor_fusion.size();
 
@@ -239,6 +246,14 @@ void PathPlanner::GetReferenceVelocity(int lane, double ego_car_s, double ego_ca
 		double car_s = sensor_fusion[i][5];
 		double car_d = sensor_fusion[i][6];
 		double distance = help.distance(car_s, car_d, ego_car_s, ego_car_d);
+		//
+		double check_speed = sqrt(car_vx * car_vx + car_vy * car_vy);
+
+		double check_car_s = car_s;
+
+		check_car_s += ((double)prev_size * .02 * check_speed);
+
+		double diff = fabs(check_car_s - ego_car_s);
 
 		if ((ego_car_d - car_d) < -1.0 && distance < min_right_dist)
 		{
@@ -247,6 +262,10 @@ void PathPlanner::GetReferenceVelocity(int lane, double ego_car_s, double ego_ca
 		else if ((ego_car_d - car_d) > 1.0 && distance < min_left_dist)
 		{
 			min_left_dist = distance;
+		}
+		if(diff < min_long_dist )
+		{
+			min_long_dist = diff;
 		}
 
 		GetCurrentReferenceVelocity(lane, ego_car_s, car_d, car_s, car_vx, car_vy, prev_size, ref_vel, too_close, closest);
@@ -261,6 +280,7 @@ void PathPlanner::Drive(double ego_car_x, double ego_car_y, double ego_car_yaw, 
 	double min_right_dist = 999;
 	double min_left_dist = 999;
 	double closest = 999;
+	double min_long_dist = 999;
 
 	if (keep_lane > 0)
 	{
@@ -273,12 +293,12 @@ void PathPlanner::Drive(double ego_car_x, double ego_car_y, double ego_car_yaw, 
 	}
 
 
-	GetReferenceVelocity(lane, ego_car_s, ego_car_d, sensor_fusion, prev_size, ref_vel, min_left_dist, min_right_dist, too_close, closest);
+	GetReferenceVelocity(lane, ego_car_s, ego_car_d, sensor_fusion, prev_size, ref_vel, min_left_dist, min_right_dist, min_long_dist, too_close, closest);
 
 	KeepLane(map_waypoints_x, map_waypoints_y, map_waypoints_s, previous_path_x, previous_path_y, ego_car_x, ego_car_y, ego_car_yaw, ego_car_speed, ego_car_s, ref_vel, lane, next_x_vals, next_y_vals);
 
 	if (too_close)
 	{
-		ChangeLane(too_close, min_left_dist, min_right_dist, lane, keep_lane);
+		ChangeLane(too_close, min_left_dist, min_right_dist, min_long_dist, lane, keep_lane);
 	}
 }
